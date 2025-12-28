@@ -36,6 +36,81 @@
 
 ## Bug 记录
 
+### 2025-12-28
+
+---
+
+#### BUG-008: 使用远程镜像导致本地修改不生效
+
+**模块**: 部署 / Docker
+**严重程度**: P1
+**状态**: ✅ 已修复
+**发现时间**: 2025-12-28
+**修复时间**: 2025-12-28
+
+**问题描述**:
+用户在本地添加了 gateway provider 支持，但 `git pull` 更新后回测实验室仍然报错 `unsupported ai provider gateway`。
+
+**原因分析**:
+1. `docker-compose.yml` 使用的是远程预构建镜像 `ghcr.io/nofxaios/nofx/nofx-backend:latest`
+2. 本地代码修改不会影响远程镜像
+3. 每次更新时拉取的都是远程镜像，不包含用户的本地修改
+4. 即使本地代码有 gateway 支持，容器里运行的还是旧代码
+
+**解决方案**:
+1. 修改 `docker-compose.yml` 使用本地构建:
+```yaml
+services:
+  nofx:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: nofx-trading
+  nofx-frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    container_name: nofx-frontend
+```
+
+2. Fork 原仓库到自己的账号，将修改提交到自己的 fork
+
+3. 配置 git 使用自己的 fork 作为默认远程仓库:
+```bash
+git remote add my https://github.com/你的用户名/nofx.git
+git branch --set-upstream-to=my/dev dev
+```
+
+4. 更新流程改为:
+```bash
+# 从原仓库拉取最新代码
+git pull origin dev
+
+# 合并冲突后推送到自己的 fork
+git push my dev
+
+# 重新构建并重启服务
+docker compose build
+docker compose up -d
+```
+
+**修复命令**:
+```bash
+# 修改 docker-compose.yml 使用本地构建
+# 添加 fork 仓库
+git remote add my https://github.com/你的用户名/nofx.git
+git branch --set-upstream-to=my/dev dev
+
+# 重新构建
+docker compose build --no-cache
+docker compose up -d
+```
+
+**相关文件**:
+- `/root/nofx/docker-compose.yml:12-16, 39-43`
+
+---
+
 ### 2025-12-26
 
 ---
@@ -640,11 +715,11 @@ docker compose up -d nofx
 
 | 统计项 | 数量 |
 |--------|------|
-| 总 Bug 数 | 7 |
-| 已修复 | 7 |
+| 总 Bug 数 | 8 |
+| 已修复 | 8 |
 | 待修复 | 0 |
 | P0 级别 | 1 |
-| P1 级别 | 6 |
+| P1 级别 | 7 |
 | P2 级别 | 0 |
 | P3 级别 | 0 |
 
@@ -658,4 +733,4 @@ docker compose up -d nofx
 
 ---
 
-*最后更新: 2025-12-27*
+*最后更新: 2025-12-28*
