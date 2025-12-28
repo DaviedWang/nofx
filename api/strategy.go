@@ -359,6 +359,7 @@ func (s *Server) handlePreviewPrompt(c *gin.Context) {
 	systemPrompt := engine.BuildSystemPrompt(
 		req.AccountEquity,
 		req.PromptVariant,
+		0, // marginUsedPct - not applicable in AI test scenario
 	)
 
 	c.JSON(http.StatusOK, gin.H{
@@ -483,7 +484,7 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 	}
 
 	// Build System Prompt
-	systemPrompt := engine.BuildSystemPrompt(1000.0, req.PromptVariant)
+	systemPrompt := engine.BuildSystemPrompt(1000.0, req.PromptVariant, 0) // marginUsedPct = 0 for test
 
 	// Build User Prompt (using real market data)
 	userPrompt := engine.BuildUserPrompt(testContext)

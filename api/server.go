@@ -2939,6 +2939,19 @@ func (s *Server) handleGetSupportedModels(c *gin.Context) {
 		{"id": "gemini", "name": "Google Gemini", "provider": "gemini", "defaultModel": "gemini-3-pro-preview"},
 		{"id": "grok", "name": "Grok (xAI)", "provider": "grok", "defaultModel": "grok-3-latest"},
 		{"id": "kimi", "name": "Kimi (Moonshot)", "provider": "kimi", "defaultModel": "moonshot-v1-auto"},
+		// API Gateway / Proxy services for unified model management
+		{
+			"id": "gateway",
+			"name": "API Gateway (中转服务)",
+			"provider": "gateway",
+			"defaultModel": "gpt-4o-mini",
+			"description": "Unified API gateway like zenmux.ai, openrouter.ai, etc.",
+			"presets": []map[string]string{
+				{"id": "zenmux", "name": "ZenMux.ai", "url": "https://zenmux.ai/api/v1"},
+				{"id": "openrouter", "name": "OpenRouter.ai", "url": "https://openrouter.ai/api/v1"},
+				{"id": "custom", "name": "Custom Gateway", "url": ""},
+			},
+		},
 	}
 
 	c.JSON(http.StatusOK, supportedModels)

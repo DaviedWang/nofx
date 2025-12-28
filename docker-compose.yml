@@ -1,15 +1,25 @@
+# NOFX Production Deployment
+# 用户部署专用 - 使用官方预构建镜像
+#
+# 一键部署命令:
+# curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
+#
+# 或手动部署:
+# curl -O https://raw.githubusercontent.com/NoFxAiOS/nofx/main/docker-compose.prod.yml
+# docker compose -f docker-compose.prod.yml up -d
+
 services:
-  # Backend service (API and core logic)
   nofx:
     build:
       context: .
-      dockerfile: ./docker/Dockerfile.backend
+      dockerfile: docker/Dockerfile.backend
     container_name: nofx-trading
     restart: unless-stopped
-    stop_grace_period: 30s  # 允许应用有 30 秒时间优雅关闭
+    stop_grace_period: 30s
     ports:
       - "${NOFX_BACKEND_PORT:-8080}:8080"
     volumes:
+      # Data directory for database and logs
       - ./data:/app/data
       - /etc/localtime:/etc/localtime:ro
     env_file:
@@ -26,11 +36,10 @@ services:
       retries: 3
       start_period: 60s
 
-  # Frontend service (static serving and proxy)
   nofx-frontend:
     build:
       context: .
-      dockerfile: ./docker/Dockerfile.frontend
+      dockerfile: docker/Dockerfile.frontend
     container_name: nofx-frontend
     restart: unless-stopped
     ports:

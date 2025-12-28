@@ -1518,11 +1518,15 @@ function ModelConfigModal({
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [modelName, setModelName] = useState('')
+  const [selectedPreset, setSelectedPreset] = useState('')
 
   // 获取当前编辑的模型信息 - 编辑时从已配置的模型中查找，新建时从所有支持的模型中查找
   const selectedModel = editingModelId
     ? configuredModels?.find((m) => m.id === selectedModelId)
     : allModels?.find((m) => m.id === selectedModelId)
+
+  // Check if selected model is gateway type
+  const isGateway = selectedModel?.provider === 'gateway'
 
   // 如果是编辑现有模型，初始化API Key、Base URL和Model Name
   useEffect(() => {
@@ -1532,6 +1536,31 @@ function ModelConfigModal({
       setModelName(selectedModel.customModelName || '')
     }
   }, [editingModelId, selectedModel])
+
+  // Handle preset selection for gateway
+  useEffect(() => {
+    if (isGateway && selectedModel?.presets) {
+      // Find matching preset based on current baseUrl
+      const matchingPreset = selectedModel.presets.find((p: any) => p.url === baseUrl)
+      if (matchingPreset) {
+        setSelectedPreset(matchingPreset.id)
+      } else {
+        setSelectedPreset('custom')
+      }
+    }
+  }, [isGateway, selectedModel, baseUrl])
+
+  const handlePresetChange = (presetId: string) => {
+    setSelectedPreset(presetId)
+    if (presetId === 'custom') {
+      setBaseUrl('')
+    } else if (selectedModel?.presets) {
+      const preset = selectedModel.presets.find((p: any) => p.id === presetId)
+      if (preset) {
+        setBaseUrl(preset.url)
+      }
+    }
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -1630,7 +1659,9 @@ function ModelConfigModal({
                           background:
                             selectedModel.id === 'deepseek'
                               ? '#60a5fa'
-                              : '#c084fc',
+                              : selectedModel.id === 'gateway'
+                                ? '#F0B90B'
+                                : '#c084fc',
                           color: '#fff',
                         }}
                       >
@@ -1645,10 +1676,15 @@ function ModelConfigModal({
                     <div className="text-xs" style={{ color: '#848E9C' }}>
                       {selectedModel.provider} • {selectedModel.id}
                     </div>
+                    {isGateway && selectedModel.description && (
+                      <div className="text-xs mt-1" style={{ color: '#F0B90B' }}>
+                        {selectedModel.description}
+                      </div>
+                    )}
                   </div>
                 </div>
                 {/* Default model info and API link */}
-                {AI_PROVIDER_CONFIG[selectedModel.provider] && (
+                {!isGateway && AI_PROVIDER_CONFIG[selectedModel.provider] && (
                   <div className="mt-3 pt-3" style={{ borderTop: '1px solid #2B3139' }}>
                     <div className="text-xs mb-2" style={{ color: '#848E9C' }}>
                       {t('defaultModel', language)}: <span style={{ color: '#F0B90B' }}>{AI_PROVIDER_CONFIG[selectedModel.provider].defaultModel}</span>
@@ -1675,6 +1711,39 @@ function ModelConfigModal({
 
             {selectedModel && (
               <>
+                {/* Gateway-specific: Preset selection */}
+                {isGateway && selectedModel.presets && selectedModel.presets.length > 0 && (
+                  <div>
+                    <label
+                      className="block text-sm font-semibold mb-2"
+                      style={{ color: '#EAECEF' }}
+                    >
+                      {language === 'zh' ? '选择中转服务' : 'Select Gateway Service'}
+                    </label>
+                    <select
+                      value={selectedPreset}
+                      onChange={(e) => handlePresetChange(e.target.value)}
+                      className="w-full px-3 py-2 rounded"
+                      style={{
+                        background: '#0B0E11',
+                        border: '1px solid #2B3139',
+                        color: '#EAECEF',
+                      }}
+                    >
+                      {selectedModel.presets.map((preset: any) => (
+                        <option key={preset.id} value={preset.id}>
+                          {preset.name}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="text-xs mt-1" style={{ color: '#848E9C' }}>
+                      {language === 'zh'
+                        ? '选择预设的中转服务，或选择自定义来手动输入 API 地址'
+                        : 'Select a preset gateway service, or choose custom to enter API URL manually'}
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <label
                     className="block text-sm font-semibold mb-2"
@@ -1697,29 +1766,40 @@ function ModelConfigModal({
                   />
                 </div>
 
-                <div>
-                  <label
-                    className="block text-sm font-semibold mb-2"
-                    style={{ color: '#EAECEF' }}
-                  >
-                    {t('customBaseURL', language)}
-                  </label>
-                  <input
-                    type="url"
-                    value={baseUrl}
-                    onChange={(e) => setBaseUrl(e.target.value)}
-                    placeholder={t('customBaseURLPlaceholder', language)}
-                    className="w-full px-3 py-2 rounded"
-                    style={{
-                      background: '#0B0E11',
-                      border: '1px solid #2B3139',
-                      color: '#EAECEF',
-                    }}
-                  />
-                  <div className="text-xs mt-1" style={{ color: '#848E9C' }}>
-                    {t('leaveBlankForDefault', language)}
+                {/* Gateway: Show custom URL input when custom is selected or for direct editing */}
+                {(isGateway || selectedModel.customApiUrl !== undefined) && (
+                  <div>
+                    <label
+                      className="block text-sm font-semibold mb-2"
+                      style={{ color: '#EAECEF' }}
+                    >
+                      {isGateway
+                        ? (language === 'zh' ? 'API 地址 (API URL)' : 'API URL')
+                        : t('customBaseURL', language)}
+                    </label>
+                    <input
+                      type="url"
+                      value={baseUrl}
+                      onChange={(e) => setBaseUrl(e.target.value)}
+                      placeholder={isGateway
+                        ? (language === 'zh' ? 'https://api.example.com/v1' : 'https://api.example.com/v1')
+                        : t('customBaseURLPlaceholder', language)}
+                      className="w-full px-3 py-2 rounded"
+                      style={{
+                        background: '#0B0E11',
+                        border: '1px solid #2B3139',
+                        color: '#EAECEF',
+                      }}
+                    />
+                    <div className="text-xs mt-1" style={{ color: '#848E9C' }}>
+                      {isGateway
+                        ? selectedPreset === 'custom'
+                          ? (language === 'zh' ? '输入自定义 API 中转地址' : 'Enter custom gateway API URL')
+                          : (language === 'zh' ? '预设地址，可修改' : 'Preset URL, editable')
+                        : t('leaveBlankForDefault', language)}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <div>
                   <label
@@ -1732,7 +1812,11 @@ function ModelConfigModal({
                     type="text"
                     value={modelName}
                     onChange={(e) => setModelName(e.target.value)}
-                    placeholder={t('customModelNamePlaceholder', language)}
+                    placeholder={
+                      isGateway
+                        ? (language === 'zh' ? 'gpt-4o-mini, claude-3-5-sonnet, 等' : 'gpt-4o-mini, claude-3-5-sonnet, etc.')
+                        : t('customModelNamePlaceholder', language)
+                    }
                     className="w-full px-3 py-2 rounded"
                     style={{
                       background: '#0B0E11',
@@ -1741,7 +1825,11 @@ function ModelConfigModal({
                     }}
                   />
                   <div className="text-xs mt-1" style={{ color: '#848E9C' }}>
-                    {t('leaveBlankForDefaultModel', language)}
+                    {isGateway
+                      ? (language === 'zh'
+                          ? '指定要使用的模型名称，留空使用默认模型。常见模型: gpt-4o-mini, gpt-4o, claude-3-5-sonnet-20241022, gemini-2.0-flash-exp'
+                          : 'Specify the model name to use. Leave blank for default. Common models: gpt-4o-mini, gpt-4o, claude-3-5-sonnet-20241022, gemini-2.0-flash-exp')
+                      : t('leaveBlankForDefaultModel', language)}
                   </div>
                 </div>
 
@@ -1762,9 +1850,20 @@ function ModelConfigModal({
                     className="text-xs space-y-1"
                     style={{ color: '#848E9C' }}
                   >
-                    <div>{t('modelConfigInfo1', language)}</div>
-                    <div>{t('modelConfigInfo2', language)}</div>
-                    <div>{t('modelConfigInfo3', language)}</div>
+                    {isGateway ? (
+                      <>
+                        <div>{language === 'zh' ? '• API 中转服务可以统一访问多个 AI 模型' : '• API Gateway allows unified access to multiple AI models'}</div>
+                        <div>{language === 'zh' ? '• 配置 API Key 和中转地址后，可以自由切换模型' : '• After configuring API key and gateway URL, you can freely switch models'}</div>
+                        <div>{language === 'zh' ? '• 常见中转服务: ZenMux.ai, OpenRouter.ai 等' : '• Common gateways: ZenMux.ai, OpenRouter.ai, etc.'}</div>
+                        <div>{language === 'zh' ? '• 在"自定义模型名称"中输入你想使用的模型 ID' : '• Enter the model ID you want to use in "Custom Model Name"'}</div>
+                      </>
+                    ) : (
+                      <>
+                        <div>{t('modelConfigInfo1', language)}</div>
+                        <div>{t('modelConfigInfo2', language)}</div>
+                        <div>{t('modelConfigInfo3', language)}</div>
+                      </>
+                    )}
                   </div>
                 </div>
               </>

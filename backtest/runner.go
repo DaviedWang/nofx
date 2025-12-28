@@ -752,21 +752,78 @@ func (r *Runner) determineQuantity(dec decision.Decision, price float64) float64
 		leverage = 5
 	}
 
-	// Calculate available margin (leave some buffer for fees)
-	availableCash := r.account.Cash()
-	maxMarginToUse := availableCash * 0.9 // Use max 90% of available cash
-	maxPositionValue := maxMarginToUse * float64(leverage)
+	// Get risk control config from strategy
+	strategyConfig := r.strategyEngine.GetConfig()
+	riskControl := strategyConfig.RiskControl
 
+	// Use strategy's MaxMarginUsage if set (default to 0.3 if not set)
+	maxMarginUsage := riskControl.MaxMarginUsage
+	if maxMarginUsage <= 0 || maxMarginUsage > 1 {
+		maxMarginUsage = 0.3 // 30% default (conservative)
+	}
+
+	// Calculate current margin usage
+	currentMarginUsed := r.totalMarginUsed()
+	maxAllowedMargin := equity * maxMarginUsage
+
+	// Calculate remaining margin we can use
+	remainingMargin := maxAllowedMargin - currentMarginUsed
+	if remainingMargin <= 0 {
+		logger.Warnf("🛑 RISK CONTROL: Margin limit reached (current: %.2f, max: %.2f, usage: %.1f%%)",
+			currentMarginUsed, maxAllowedMargin, (currentMarginUsed/equity)*100)
+		return 0
+	}
+
+	// Calculate max position value based on remaining margin
+	maxPositionValue := remainingMargin * float64(leverage)
+
+	// Check single position value limit
+	sym := strings.ToUpper(dec.Symbol)
+	var maxPositionValueRatio float64
+	if sym == "BTCUSDT" || sym == "ETHUSDT" {
+		maxPositionValueRatio = riskControl.BTCETHMaxPositionValueRatio
+		if maxPositionValueRatio <= 0 {
+			maxPositionValueRatio = 5.0 // Default: 5x equity
+		}
+	} else {
+		maxPositionValueRatio = riskControl.AltcoinMaxPositionValueRatio
+		if maxPositionValueRatio <= 0 {
+			maxPositionValueRatio = 1.0 // Default: 1x equity
+		}
+	}
+	maxSinglePositionValue := equity * maxPositionValueRatio
+
+	// Use the more restrictive limit
+	if maxPositionValue > maxSinglePositionValue {
+		maxPositionValue = maxSinglePositionValue
+	}
+
+	// Get AI requested position size
 	sizeUSD := dec.PositionSizeUSD
 	if sizeUSD <= 0 {
-		// Default to 5% of equity, but cap to available margin
+		// Default to 5% of equity if AI doesn't specify
 		sizeUSD = 0.05 * equity
+	}
+
+	// Enforce minimum position size
+	minPositionSize := riskControl.MinPositionSize
+	if minPositionSize > 0 && sizeUSD < minPositionSize {
+		logger.Infof("📊 Backtest: position size %.2f below minimum %.2f, using minimum",
+			sizeUSD, minPositionSize)
+		sizeUSD = minPositionSize
 	}
 
 	// Cap position size to what we can actually afford
 	if sizeUSD > maxPositionValue {
-		logger.Infof("📊 Backtest: capping position from %.2f to %.2f (available margin: %.2f, leverage: %dx)",
-			sizeUSD, maxPositionValue, maxMarginToUse, leverage)
+		logger.Infof("🛑 RISK CONTROL: Capping position from %.2f to %.2f (max allowed: %.2f, reason: %s)",
+			sizeUSD, maxPositionValue, maxPositionValue,
+			func() string {
+				if remainingMargin*float64(leverage) < maxSinglePositionValue {
+					return fmt.Sprintf("margin limit (remaining: %.2f/%.2f = %.1f%%)",
+						remainingMargin, maxAllowedMargin, (remainingMargin/maxAllowedMargin)*100)
+				}
+				return fmt.Sprintf("single position limit (%.1fx equity)", maxPositionValueRatio)
+			}())
 		sizeUSD = maxPositionValue
 	}
 
@@ -778,8 +835,14 @@ func (r *Runner) determineQuantity(dec decision.Decision, price float64) float64
 }
 
 func (r *Runner) determineCloseQuantity(symbol, side string, dec decision.Decision) float64 {
+	// Normalize symbol for consistent comparison (handles both "ETH" and "ETHUSDT" formats)
+	normalizedSymbol := market.Normalize(symbol)
+	upperSymbol := strings.ToUpper(symbol)
+
 	for _, pos := range r.account.Positions() {
-		if pos.Symbol == strings.ToUpper(symbol) && pos.Side == side {
+		// Try both normalized and uppercase formats for matching
+		// This handles cases where AI returns inconsistent symbol formats
+		if (pos.Symbol == normalizedSymbol || pos.Symbol == upperSymbol) && pos.Side == side {
 			return pos.Quantity
 		}
 	}

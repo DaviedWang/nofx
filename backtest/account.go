@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
+	"nofx/market"
 )
 
 const epsilon = 1e-8
@@ -220,10 +222,20 @@ func (acc *BacktestAccount) Positions() []*position {
 }
 
 func (acc *BacktestAccount) positionLeverage(symbol, side string) int {
+	// Try both normalized and uppercase formats to handle AI symbol format inconsistency
+	// This fixes "invalid close qty" errors when AI returns "ETH" for open and "ETHUSDT" for close
 	key := positionKey(symbol, side)
 	if pos, ok := acc.positions[key]; ok && pos.Quantity > epsilon {
 		return pos.Leverage
 	}
+
+	// Try with normalized symbol (e.g., "ETH" -> "ETHUSDT")
+	normalizedSymbol := market.Normalize(symbol)
+	normalizedKey := positionKey(normalizedSymbol, side)
+	if pos, ok := acc.positions[normalizedKey]; ok && pos.Quantity > epsilon {
+		return pos.Leverage
+	}
+
 	return 0
 }
 

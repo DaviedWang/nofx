@@ -13,6 +13,7 @@ const MODEL_COLORS: Record<string, string> = {
   gemini: '#4285F4',
   grok: '#000000',
   openai: '#10A37F',
+  gateway: '#F0B90B',
 }
 
 // 获取AI模型图标的函数
@@ -43,6 +44,9 @@ export const getModelIcon = (modelType: string, props: IconProps = {}) => {
       break
     case 'openai':
       iconPath = '/icons/openai.svg'
+      break
+    case 'gateway':
+      iconPath = '/icons/gateway.svg'
       break
     default:
       return null

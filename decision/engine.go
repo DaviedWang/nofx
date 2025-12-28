@@ -254,7 +254,7 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 
 	// 2. Build System Prompt using strategy engine
 	riskConfig := engine.GetRiskControlConfig()
-	systemPrompt := engine.BuildSystemPrompt(ctx.Account.TotalEquity, variant)
+	systemPrompt := engine.BuildSystemPrompt(ctx.Account.TotalEquity, variant, ctx.Account.MarginUsedPct)
 
 	// 3. Build User Prompt using strategy engine
 	userPrompt := engine.BuildUserPrompt(ctx)
@@ -722,7 +722,7 @@ func (e *StrategyEngine) FetchOIRankingData() *provider.OIRankingData {
 // ============================================================================
 
 // BuildSystemPrompt builds System Prompt according to strategy configuration
-func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string) string {
+func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string, marginUsedPct float64) string {
 	var sb strings.Builder
 	riskControl := e.config.RiskControl
 	promptSections := e.config.PromptSections
@@ -779,15 +779,25 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString(fmt.Sprintf("- Risk-Reward Ratio: ≥1:%.1f (take_profit / stop_loss)\n", riskControl.MinRiskRewardRatio))
 	sb.WriteString(fmt.Sprintf("- Min Confidence: ≥%d to open position\n\n", riskControl.MinConfidence))
 
-	// Position sizing guidance
+	// Position sizing guidance - MORE CONSERVATIVE
 	sb.WriteString("## Position Sizing Guidance\n")
-	sb.WriteString("Calculate `position_size_usd` based on your confidence and the Position Value Limits above:\n")
-	sb.WriteString("- High confidence (≥85): Use 80-100%% of max position value limit\n")
-	sb.WriteString("- Medium confidence (70-84): Use 50-80%% of max position value limit\n")
-	sb.WriteString("- Low confidence (60-69): Use 30-50%% of max position value limit\n")
-	sb.WriteString(fmt.Sprintf("- Example: With equity %.0f and BTC/ETH ratio %.1fx, max is %.0f USDT\n",
-		accountEquity, btcEthPosValueRatio, accountEquity*btcEthPosValueRatio))
-	sb.WriteString("- **DO NOT** just use available_balance as position_size_usd. Use the Position Value Limits!\n\n")
+	sb.WriteString("**IMPORTANT**: Be conservative with position sizing. Consider margin usage!\n")
+	sb.WriteString(fmt.Sprintf("Current margin usage: %.1f%% | Max allowed: %.0f%%\n",
+		marginUsedPct, riskControl.MaxMarginUsage*100))
+	if marginUsedPct > 50 {
+		sb.WriteString(fmt.Sprintf("⚠️ WARNING: Margin usage %.1f%% is already high! Use smaller positions.\n", marginUsedPct))
+	}
+	sb.WriteString("\nCalculate `position_size_usd` based on your confidence and the Position Value Limits above:\n")
+	// More conservative guidelines
+	sb.WriteString("- High confidence (≥85): Use 40-60%% of max position value limit (conservative)\n")
+	sb.WriteString("- Medium confidence (70-84): Use 25-40%% of max position value limit\n")
+	sb.WriteString("- Low confidence (60-69): Use 15-25%% of max position value limit\n")
+	sb.WriteString(fmt.Sprintf("- Example: With equity %.0f and BTC/ETH ratio %.1fx:\n", accountEquity, btcEthPosValueRatio))
+	sb.WriteString(fmt.Sprintf("  - Max position: %.0f USDT\n", accountEquity*btcEthPosValueRatio))
+	sb.WriteString(fmt.Sprintf("  - Recommended (high confidence): %.0f-%.0f USDT (40-60%% of max)\n",
+		accountEquity*btcEthPosValueRatio*0.4, accountEquity*btcEthPosValueRatio*0.6))
+	sb.WriteString("- **DO NOT** just use available_balance as position_size_usd\n")
+	sb.WriteString("- **DO NOT** use 100% of max position value limit - stay conservative!\n\n")
 
 	// 4. Trading frequency (editable)
 	if promptSections.TradingFrequency != "" {
@@ -1455,13 +1465,10 @@ func extractDecisions(response string) ([]Decision, error) {
 			cotSummary = cotSummary[:240] + "..."
 		}
 
-		fallbackDecision := Decision{
-			Symbol:    "ALL",
-			Action:    "wait",
-			Reasoning: fmt.Sprintf("Model didn't output structured JSON decision, entering safe wait; summary: %s", cotSummary),
-		}
-
-		return []Decision{fallbackDecision}, nil
+		// Return empty decisions array instead of a fallback decision with invalid symbol
+		// This prevents "price unavailable for ALL" errors in backtest
+		logger.Infof("⚠️  [SafeFallback] Returning empty decisions array - system will wait")
+		return []Decision{}, nil
 	}
 
 	jsonContent = compactArrayOpen(jsonContent)

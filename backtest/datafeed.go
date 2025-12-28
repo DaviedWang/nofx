@@ -29,10 +29,24 @@ type DataFeed struct {
 }
 
 func NewDataFeed(cfg BacktestConfig) (*DataFeed, error) {
+	// Ensure DecisionTimeframe is included in the timeframes list
+	timeframes := make([]string, 0, len(cfg.Timeframes)+1)
+	decisionTFIncluded := false
+	for _, tf := range cfg.Timeframes {
+		timeframes = append(timeframes, tf)
+		if tf == cfg.DecisionTimeframe {
+			decisionTFIncluded = true
+		}
+	}
+	// Add DecisionTimeframe if not already in the list
+	if !decisionTFIncluded && cfg.DecisionTimeframe != "" {
+		timeframes = append(timeframes, cfg.DecisionTimeframe)
+	}
+
 	df := &DataFeed{
 		cfg:          cfg,
 		symbols:      make([]string, len(cfg.Symbols)),
-		timeframes:   append([]string(nil), cfg.Timeframes...),
+		timeframes:   timeframes,
 		symbolSeries: make(map[string]*symbolSeries),
 		primaryTF:    cfg.DecisionTimeframe,
 	}
@@ -96,6 +110,9 @@ func (df *DataFeed) loadAll() error {
 	// Generate backtest progress timeline using the primary timeframe of the first symbol
 	firstSymbol := df.symbols[0]
 	primarySeries := df.symbolSeries[firstSymbol].byTF[df.primaryTF]
+	if primarySeries == nil {
+		return fmt.Errorf("primary timeframe %s data not found for symbol %s", df.primaryTF, firstSymbol)
+	}
 	startMs := start.UnixMilli()
 	endMs := end.UnixMilli()
 	for _, ts := range primarySeries.closeTimes {
@@ -165,6 +182,52 @@ func (df *DataFeed) BuildMarketData(ts int64) (map[string]*market.Data, map[stri
 		if _, ok := perTF[df.primaryTF]; !ok {
 			return nil, nil, fmt.Errorf("no primary data for %s at %d", symbol, ts)
 		}
+
+		// Build TimeframeData for primary timeframe data to support strategy engine
+		// This is needed for formatMarketData to work correctly
+		if primaryData, hasPrimary := perTF[df.primaryTF]; hasPrimary {
+			primaryData.TimeframeData = make(map[string]*market.TimeframeSeriesData, len(df.timeframes))
+			for _, tf := range df.timeframes {
+				// Re-fetch the raw Kline data for this timeframe
+				series := df.sliceUpTo(symbol, tf, ts)
+				if len(series) == 0 {
+					continue
+				}
+
+				// Convert Kline to KlineBar for TimeframeSeriesData
+				klineBars := make([]market.KlineBar, len(series))
+				for i, k := range series {
+					klineBars[i] = market.KlineBar{
+						Time:   k.OpenTime,
+						Open:   k.Open,
+						High:   k.High,
+						Low:    k.Low,
+						Close:  k.Close,
+						Volume: k.Volume,
+					}
+				}
+
+				// Get the calculated indicator data from the built market data
+				tfData, hasData := perTF[tf]
+				if !hasData || tfData.IntradaySeries == nil {
+					// Skip if no data for this timeframe
+					continue
+				}
+
+				primaryData.TimeframeData[tf] = &market.TimeframeSeriesData{
+					Timeframe:   tf,
+					Klines:      klineBars,
+					MidPrices:   tfData.IntradaySeries.MidPrices,
+					EMA20Values: tfData.IntradaySeries.EMA20Values,
+					MACDValues:  tfData.IntradaySeries.MACDValues,
+					RSI7Values:  tfData.IntradaySeries.RSI7Values,
+					RSI14Values: tfData.IntradaySeries.RSI14Values,
+					Volume:      tfData.IntradaySeries.Volume,
+					ATR14:       tfData.IntradaySeries.ATR14,
+				}
+			}
+		}
+
 		multi[symbol] = perTF
 	}
 	return result, multi, nil

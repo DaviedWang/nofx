@@ -112,6 +112,16 @@ export interface AIModel {
   apiKey?: string
   customApiUrl?: string
   customModelName?: string
+  // Gateway-specific fields
+  description?: string
+  presets?: GatewayPreset[]
+  selectedPreset?: string
+}
+
+export interface GatewayPreset {
+  id: string
+  name: string
+  url: string
 }
 
 export interface Exchange {

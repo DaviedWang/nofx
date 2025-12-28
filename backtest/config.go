@@ -274,9 +274,9 @@ func (cfg *BacktestConfig) ToStrategyConfig() *store.StrategyConfig {
 			MaxPositions:                 3,
 			BTCETHMaxLeverage:            cfg.Leverage.BTCETHLeverage,
 			AltcoinMaxLeverage:           cfg.Leverage.AltcoinLeverage,
-			BTCETHMaxPositionValueRatio:  5.0,
-			AltcoinMaxPositionValueRatio: 1.0,
-			MaxMarginUsage:               0.9,
+			BTCETHMaxPositionValueRatio:  1.5, // Max position = 150% equity (300 USDT margin at 5x leverage = 30% equity)
+			AltcoinMaxPositionValueRatio: 1.5, // Max position = 150% equity (300 USDT margin at 5x leverage = 30% equity)
+			MaxMarginUsage:               0.3, // Total margin ≤ 30% equity
 			MinPositionSize:              12,
 			MinRiskRewardRatio:           3.0,
 			MinConfidence:                75,
